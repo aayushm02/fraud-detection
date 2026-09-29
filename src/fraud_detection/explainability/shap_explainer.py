@@ -2,11 +2,18 @@ import logging
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 import pandas as pd
-import shap
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 logger = logging.getLogger(__name__)
+
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except Exception as e:
+    shap = None
+    SHAP_AVAILABLE = False
+    logger.warning(f"SHAP import unavailable: {e}")
 
 class FraudExplainer:
     """Provides SHAP-based explainability for fraud detection models."""
@@ -36,6 +43,10 @@ class FraudExplainer:
                 self.feature_names = []
 
     def _init_explainer(self) -> None:
+        if not SHAP_AVAILABLE or shap is None:
+            logger.warning("SHAP library is not available. Explainer disabled.")
+            return
+
         tree_models = (
             'RandomForestClassifier', 'XGBClassifier', 'LGBMClassifier',
             'DecisionTreeClassifier', 'GradientBoostingClassifier'
@@ -44,15 +55,19 @@ class FraudExplainer:
         model_name = type(self.model).__name__
         logger.info(f"Initializing SHAP explainer for {model_name}")
         
-        if model_name in tree_models:
-            self.explainer = shap.TreeExplainer(self.model)
-            self.is_tree = True
-        else:
-            logger.warning("Using KernelExplainer. This might be slow for large datasets.")
-            background = shap.kmeans(self.X_train, 100) if len(self.X_train) > 100 else self.X_train
-            pred_func = self.model.predict_proba if hasattr(self.model, 'predict_proba') else self.model.predict
-            self.explainer = shap.KernelExplainer(pred_func, background)
-            self.is_tree = False
+        try:
+            if model_name in tree_models:
+                self.explainer = shap.TreeExplainer(self.model)
+                self.is_tree = True
+            else:
+                logger.warning("Using KernelExplainer. This might be slow for large datasets.")
+                background = shap.kmeans(self.X_train, 100) if len(self.X_train) > 100 else self.X_train
+                pred_func = self.model.predict_proba if hasattr(self.model, 'predict_proba') else self.model.predict
+                self.explainer = shap.KernelExplainer(pred_func, background)
+                self.is_tree = False
+        except Exception as e:
+            logger.warning(f"Failed to initialize SHAP explainer: {e}")
+            self.explainer = None
 
     def compute_shap_values(self, X: pd.DataFrame) -> np.ndarray:
         """
@@ -206,23 +221,23 @@ class FraudExplainer:
 
     def get_top_features(self, X: Optional[pd.DataFrame] = None, top_n: int = 10) -> List[Dict[str, Any]]:
         """
-        Get the overall top contributing features based on mean absolute SHAP value.
-
-        Args:
-            X (Optional[pd.DataFrame]): Dataset to evaluate.
-            top_n (int): Number of top features to return.
-
-        Returns:
-            List[Dict[str, Any]]: List of dicts containing feature name and mean absolute SHAP value.
+        Get the overall top contributing features based on mean absolute SHAP value, with fallback to model feature importances.
         """
-        if X is None or self.X_train is None or self.explainer is None:
-            logger.warning("X, X_train, or explainer is None. Returning empty feature list.")
-            return []
+        if self.explainer is not None and X is not None:
+            try:
+                shap_values = self.compute_shap_values(X)
+                mean_abs_shap = np.abs(shap_values).mean(axis=0)
+                feature_importance = list(zip(self.feature_names, mean_abs_shap))
+                feature_importance.sort(key=lambda x: x[1], reverse=True)
+                return [{'feature': name, 'importance': float(importance)} for name, importance in feature_importance[:top_n]]
+            except Exception as e:
+                logger.warning(f"Error computing SHAP values: {e}")
 
-        shap_values = self.compute_shap_values(X)
-        mean_abs_shap = np.abs(shap_values).mean(axis=0)
-        
-        feature_importance = list(zip(self.feature_names, mean_abs_shap))
-        feature_importance.sort(key=lambda x: x[1], reverse=True)
-        
-        return [{'feature': name, 'importance': float(importance)} for name, importance in feature_importance[:top_n]]
+        # Fallback to model feature_importances_ if available
+        if hasattr(self.model, "feature_importances_") and self.feature_names:
+            importances = self.model.feature_importances_
+            feature_importance = list(zip(self.feature_names, importances))
+            feature_importance.sort(key=lambda x: x[1], reverse=True)
+            return [{'feature': name, 'importance': float(importance)} for name, importance in feature_importance[:top_n]]
+
+        return []

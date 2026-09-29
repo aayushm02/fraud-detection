@@ -7,7 +7,10 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 
 from fraud_detection.models.registry import ModelRegistry
-from fraud_detection.explainability.shap_explainer import FraudExplainer
+try:
+    from fraud_detection.explainability.shap_explainer import FraudExplainer
+except Exception:
+    FraudExplainer = None
 from fraud_detection.config import get_settings
 
 st.set_page_config(
@@ -189,12 +192,13 @@ def render_live_prediction():
                     st.plotly_chart(fig_gauge, use_container_width=True)
                     
                     try:
-                        explainer = FraudExplainer(model)
-                        top_features = explainer.get_top_features(df_input)
-                        if top_features:
-                            st.write("Top Risk Factors:")
-                            for factor in top_features:
-                                st.write(f"- **{factor['feature']}**: {factor['importance']:.4f}")
+                        if FraudExplainer is not None:
+                            explainer = FraudExplainer(model)
+                            top_features = explainer.get_top_features(df_input)
+                            if top_features:
+                                st.write("Top Risk Factors:")
+                                for factor in top_features:
+                                    st.write(f"- **{factor['feature']}**: {factor['importance']:.4f}")
                     except Exception as e:
                         st.info(f"Explainability not available: {e}")
                 else:
