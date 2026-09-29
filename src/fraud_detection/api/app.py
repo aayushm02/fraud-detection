@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from fraud_detection.api.routes import router, app_context
-from fraud_detection.explainability.shap_explainer import FraudExplainer
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.info(f"Loading best model: {best['name']} version {best['version']}")
             app_context.active_model = best['model']
             app_context.model_info = best
-            app_context.explainer = FraudExplainer(best['model'])
+            try:
+                from fraud_detection.explainability.shap_explainer import FraudExplainer
+                app_context.explainer = FraudExplainer(best['model'])
+            except Exception as e:
+                logger.warning(f"Could not initialize explainer: {e}")
         else:
             logger.warning("No models found in registry on startup.")
     except Exception as e:
@@ -63,7 +66,7 @@ def create_app() -> FastAPI:
         logger.info(f"Response status: {response.status_code}")
         return response
 
-    app.include_router(router, prefix="/api/v1")
+    app.include_router(router)
 
     return app
 

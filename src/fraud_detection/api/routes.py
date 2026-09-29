@@ -1,9 +1,10 @@
 """API route handlers."""
 import time
 import uuid
+import logging
 from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
-import pandas as pd
+import numpy as np
 
 from fraud_detection.api.schemas import (
     BatchPredictionRequest,
@@ -13,19 +14,25 @@ from fraud_detection.api.schemas import (
     PredictionResponse,
     TransactionInput,
 )
-from fraud_detection.config import get_settings
-from fraud_detection.models.registry import ModelRegistry
-from fraud_detection.explainability.shap_explainer import FraudExplainer
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
-settings = get_settings()
 
 class AppContext:
-    registry: ModelRegistry = ModelRegistry()
-    active_model = None
-    model_info = {}
-    start_time: float = time.time()
-    explainer = None
+    """Application context holding model and configuration state."""
+    def __init__(self):
+        self._registry = None
+        self.active_model = None
+        self.model_info: Dict[str, Any] = {}
+        self.start_time: float = time.time()
+        self.explainer = None
+
+    @property
+    def registry(self):
+        if self._registry is None:
+            from fraud_detection.models.registry import ModelRegistry
+            self._registry = ModelRegistry()
+        return self._registry
 
 app_context = AppContext()
 
@@ -65,10 +72,10 @@ async def predict(transaction: TransactionInput) -> PredictionResponse:
     start_t = time.time()
     
     try:
-        df = pd.DataFrame([transaction.features])
+        feature_values = np.array([list(transaction.features.values())])
         
         # Assuming predict_proba returns array with prob of fraud at index 1
-        prob = float(app_context.active_model.predict_proba(df)[0, 1])
+        prob = float(app_context.active_model.predict_proba(feature_values)[0, 1])
         
         threshold = app_context.model_info.get("threshold", 0.5)
         is_fraud = prob >= threshold
@@ -110,8 +117,8 @@ async def predict_batch(request: BatchPredictionRequest) -> BatchPredictionRespo
         fraud_count = 0
         threshold = app_context.model_info.get("threshold", 0.5)
         
-        df = pd.DataFrame([t.features for t in request.transactions])
-        probs = app_context.active_model.predict_proba(df)[:, 1]
+        features_matrix = np.array([list(t.features.values()) for t in request.transactions])
+        probs = app_context.active_model.predict_proba(features_matrix)[:, 1]
         
         top_factors_list = []
         if app_context.explainer:
