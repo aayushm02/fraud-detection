@@ -1,0 +1,55 @@
+project:
+  name: "Enterprise Fraud Detection System"
+  version: "1.0.0"
+
+data:
+  credit_card_path: "data/creditcard.csv"
+  synthetic_banking_size: 100000
+  test_size: 0.2
+  random_state: 42
+
+features:
+  scaling: "standard"
+  handle_imbalance: "smote"
+  velocity_windows: [1, 6, 24]
+  outlier_clip_factor: 1.5
+
+models:
+  logistic_regression:
+    C: 1.0
+    max_iter: 1000
+    class_weight: "balanced"
+  random_forest:
+    n_estimators: 200
+    max_depth: 15
+    class_weight: "balanced"
+    n_jobs: -1
+  xgboost:
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.1
+    scale_pos_weight: auto
+    eval_metric: "aucpr"
+    tree_method: "hist"
+  lightgbm:
+    n_estimators: 300
+    max_depth: 8
+    learning_rate: 0.05
+    is_unbalance: true
+    verbose: -1
+
+evaluation:
+  threshold: 0.5
+  metrics: ["accuracy", "precision", "recall", "f1", "roc_auc", "average_precision"]
+  cost_false_positive: 10
+  cost_false_negative: 500
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+
+dashboard:
+  port: 8501
+
+registry:
+  path: "models/"
